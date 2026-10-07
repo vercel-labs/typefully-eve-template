@@ -1,5 +1,20 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
+import blueskyBannedWords from "../skills/bluesky-style/references/banned-words.json" with {
+  type: "json",
+};
+import linkedinBannedWords from "../skills/linkedin-style/references/banned-words.json" with {
+  type: "json",
+};
+import mastodonBannedWords from "../skills/mastodon-style/references/banned-words.json" with {
+  type: "json",
+};
+import threadsBannedWords from "../skills/threads-style/references/banned-words.json" with {
+  type: "json",
+};
+import xBannedWords from "../skills/x-style/references/banned-words.json" with {
+  type: "json",
+};
 
 /**
  * Escape regular-expression metacharacters so a banned word is matched literally.
@@ -54,16 +69,23 @@ const MAX_TEXT_LENGTH = 100_000;
  * treated as an empty list rather than trusted.
  */
 const BANNED_WORDS_SCHEMA = z.array(z.string());
+const BANNED_WORDS_BY_SURFACE = {
+  bluesky: blueskyBannedWords,
+  linkedin: linkedinBannedWords,
+  mastodon: mastodonBannedWords,
+  threads: threadsBannedWords,
+  x: xBannedWords,
+};
 
 /**
  * Tool that checks a draft against the active surface's banned-words list.
  *
  * @remarks
- * The banned-words list lives in the matching style skill at `references/banned-words.json`
- * and is read at runtime through the skill handle. The `surface` input is constrained to a
- * fixed enum, so the resolved skill id and file path can never be influenced by the caller.
- * Any failure to resolve, read, parse, or validate the list is treated as "no banned words"
- * rather than failing the check. Run it before proposing a draft to the writer.
+ * The banned-words list lives in each style skill's `references/banned-words.json` and is
+ * imported directly so the runtime tool doesn't need a skill file API. The `surface` input is
+ * constrained to a fixed enum, so callers can select only one of the bundled lists. Invalid list
+ * data is treated as "no banned words" rather than failing the check. Run it before proposing a
+ * draft to the writer.
  */
 export default defineTool({
   description:
@@ -75,25 +97,16 @@ export default defineTool({
    * @param input - Validated tool input.
    * @param input.surface - Content surface whose style skill supplies the banned-words list.
    * @param input.text - Draft text to scan.
-   * @param ctx - Tool runtime context, used to read the skill's reference files.
    * @returns `ok` (true when no banned words are present) and human-readable `violations`.
    */
-  async execute({ surface, text }, ctx) {
-    let banned: string[] = [];
-    try {
-      const raw = await ctx
-        .getSkill(`${surface}-style`)
-        .file("references/banned-words.json")
-        .text();
-      const parsed = BANNED_WORDS_SCHEMA.safeParse(JSON.parse(raw));
-      if (parsed.success) {
-        banned = [...new Set(parsed.data.map((w) => w.trim()).filter(Boolean))];
-      }
-    } catch {
-      banned = [];
-    }
-
-    const hits = banned.filter((w) => toMatcher(w).test(text));
+  execute({ surface, text }) {
+    const parsed = BANNED_WORDS_SCHEMA.safeParse(
+      BANNED_WORDS_BY_SURFACE[surface]
+    );
+    const banned = parsed.success
+      ? [...new Set(parsed.data.map((word) => word.trim()).filter(Boolean))]
+      : [];
+    const hits = banned.filter((word) => toMatcher(word).test(text));
     return {
       ok: hits.length === 0,
       violations: hits.map(

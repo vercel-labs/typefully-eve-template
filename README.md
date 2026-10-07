@@ -66,6 +66,10 @@ agent/
   subagents/
     researcher/             # fresh-context web researcher (own session, web tools only)
     reviewer/               # fresh-context draft reviewer (own session)
+  tools/
+    lint_against_style.ts   # deterministic banned-words check (imports style-skill JSON)
+    run_researcher.ts       # structured research through the researcher subagent
+    run_reviewer.ts         # structured draft review through the reviewer subagent
       skills/writing-quality/  # its own copy of the writing-quality rubric
       sandbox.ts            # its own sandbox backend
   tools/
