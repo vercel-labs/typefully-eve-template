@@ -11,7 +11,10 @@ import { defineAgent } from "eve";
  * from what the root packs into `message` plus what it fetches, so every claim must be grounded
  * in a real source: the root weaves in only cited `findings` and surfaces `gaps` to the user.
  *
- * The `run_researcher` workflow tool requests a structured, cited result from this subagent.
+ * `tool: false` hides the auto-generated `web-researcher` tool: the root reaches this agent through the
+ * authored `researcher` workflow tool (`agent/tools/researcher.ts`), which requests the structured,
+ * cited result per turn with `ctx.agent().send({ outputSchema })` (eve no longer accepts
+ * `outputSchema` on `defineAgent`). `description` still describes the agent in `ctx.agents`.
  *
  * @see The research methodology and output contract in this folder's `instructions.md`.
  */

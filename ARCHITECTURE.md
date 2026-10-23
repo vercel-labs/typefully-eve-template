@@ -19,7 +19,7 @@ eve discovers every capability from the filesystem under `agent/`. There is no c
 
 ```text
 agent/
-  agent.ts                  # model configuration (defineAgent): compaction + session token limits
+  agent.ts                  # model configuration (defineAgent): compaction + session usage limit (limits.sessionUsage)
   instructions.md           # base system prompt / behavior
   channels/
     slack.ts                # Slack surface; credentials via Vercel Connect
@@ -27,12 +27,12 @@ agent/
   connections/
     typefully.ts            # Typefully MCP server, static API key (TYPEFULLY_API_KEY); deletes and scheduling approval-gated
     notion.ts               # Notion MCP server, user-scoped OAuth; update/move tools approval-gated
-  sandbox.ts                # sandbox backend (Vercel Sandbox)
+  sandbox.ts                # sandbox environment (VercelSandbox.environment())
   schedules/
     weekly-analytics.ts     # Monday cron: pull Typefully analytics, post a digest to Slack
   subagents/
-    researcher/             # agent.ts + instructions.md; fresh-context web researcher (web tools only)
-    reviewer/               # agent.ts + instructions.md + own skills/writing-quality copy + sandbox.ts
+    web-researcher/         # agent.ts + instructions.md; fresh-context web researcher (web tools only); tool: false
+    draft-reviewer/         # agent.ts + instructions.md + own skills/writing-quality copy + sandbox.ts; tool: false
   tools/
     upload_asset.ts         # Vercel Blob: store text/binary
     list_assets.ts          # Vercel Blob: browse
@@ -44,8 +44,11 @@ agent/
     clear_user_preferences.ts # Blob: clear this user's preferences (approval-gated)
     lint_against_style.ts   # check a draft against the target platform's banned-words list
     post_analytics_report.ts  # post the weekly analytics digest to a fixed Slack channel (callSlackApi)
+    researcher.ts           # workflow tool: ctx.agent("web-researcher") with a findings outputSchema
+    reviewer.ts             # workflow tool: ctx.agent("draft-reviewer") with a verdict outputSchema
   lib/
     user-preferences.ts     # principal-scoped Blob key + reserved-prefix guard (shared helper)
+    banned-words.ts         # imports each style skill's banned-words.json so tool code can read it
   skills/                   # load-on-demand procedures, routed by description frontmatter
     writing-quality/              # generic prose quality: AI-tells + plain-English references
     x-style/                      # X voice, hooks, threads, specs, banned words
@@ -67,19 +70,19 @@ agent/
 | Notion access | `agent/connections/notion.ts` | Connection (MCP) | Search/read/write Notion as the signed-in user; update/move tools are approval-gated, page creation is not |
 | Asset tools | `agent/tools/{upload,list,get_asset_info,download,delete}_asset.ts` | Tools | Store and manage files in Vercel Blob |
 | User preferences | `agent/tools/{get,save,clear}_user_preferences.ts` + `agent/lib/user-preferences.ts` | Tools | Per-user standing preferences in Blob, keyed to the resolved principal (never model input) |
-| Style lint | `agent/tools/lint_against_style.ts` | Tool | Deterministic banned-words check on a draft; imports the matching `references/banned-words.json` at build time, with the surface constrained to a fixed enum |
+| Style lint | `agent/tools/lint_against_style.ts` | Tool | Deterministic banned-words check on a draft; checks the matching `*-style` skill's `references/banned-words.json`, bundled through `agent/lib/banned-words.ts` (tool code has no skill file API), with the surface constrained to a fixed enum |
 | Analytics digest | `agent/schedules/weekly-analytics.ts` + `agent/tools/post_analytics_report.ts` | Schedule + Tool | Monday cron runs the agent to pull Typefully post and follower analytics and post two Slack `data_table` blocks (with a fixed-width text fallback) to the channel in `TYPEFULLY_ANALYTICS_CHANNEL` via `callSlackApi`; the tool's destination is env-fixed, never model input |
-| Researcher | `agent/subagents/researcher/` + `agent/tools/run_researcher.ts` | Subagent + workflow tool | Fresh-context web research for facts the source material doesn't hold; the workflow wrapper requests cited structured findings from the child session |
-| Reviewer | `agent/subagents/reviewer/` + `agent/tools/run_reviewer.ts` | Subagent + workflow tool | Fresh-context, verdict-only review of a finished draft; loads the rubric from its own `writing-quality` skill copy, so the root passes only the draft and context |
+| Researcher | `agent/tools/researcher.ts` + `agent/subagents/web-researcher/` | Workflow tool + Subagent | Fresh-context web research for facts the source material doesn't hold; the subagent uses framework `web_search`/`web_fetch`, and the tool requests cited findings + gaps as structured output |
+| Reviewer | `agent/tools/reviewer.ts` + `agent/subagents/draft-reviewer/` | Workflow tool + Subagent | Fresh-context, verdict-only review of a finished draft; the subagent loads the rubric from its own `writing-quality` skill copy, so the root passes only the draft and context, and the tool requests the verdict as structured output |
 
-Channels and the connections are I/O boundaries. Tools run in the app runtime (full `process.env`). Skills only add instructions to context; they are not an execution surface. The `researcher` and `reviewer` subagents each run in their own isolated child session — fresh context, none of the root's skills or connections — so `run_researcher` and `run_reviewer` pass each child's request in the `message`. The reviewer is sent only the draft and any voice or audience context; it loads the rubric itself from its own copy of the `writing-quality` skill. The two copies are byte-identical and duplicated by hand; a change to either must be mirrored to the other.
+Channels and the connections are I/O boundaries. Tools run in the app runtime (full `process.env`). Skills only add instructions to context; they are not an execution surface. The `researcher` and `reviewer` tools each open a session with their subagent (`web-researcher`, `draft-reviewer`) through `ctx.agent()` and request structured output for that turn (eve does not accept `outputSchema` on `defineAgent`). The subagents set `tool: false` and are named differently from the tools because eve rejects a tool and a subagent sharing a name. Each runs in its own isolated child session — fresh context, none of the root's skills or connections — so the root passes what each needs in the call `message`. The reviewer is sent only the draft and any voice or audience context; it loads the rubric itself from its own copy of the `writing-quality` skill. The two copies are byte-identical and duplicated by hand; a change to either must be mirrored to the other.
 
 ## Data stores
 
 - **Typefully** (external, user-owned): where drafts, the publishing queue, media, tags, and analytics live. All access goes through Typefully's MCP server, authenticated with a static API key read from the `TYPEFULLY_API_KEY` environment variable — one shared workspace credential, resolved per connection attempt and never exposed to the model.
 - **Notion** (external, user-owned): the source for briefs and reference material and the destination for long-form drafts. Per-user OAuth, no shared credential.
 - **Vercel Blob**: object storage for exported drafts, images, and attachments. Authenticated by the project's OIDC token (no `BLOB_READ_WRITE_TOKEN`). Also holds per-user preferences under the reserved `user-preferences/<hashed-principal>.md` prefix, reachable only through the principal-scoped preference tools.
-- **Vercel Sandbox** (`/workspace/skills/...`): holds the seeded skill files the model reads. The reviewer subagent declares its own `sandbox.ts` because subagent sandboxes don't inherit from the root. Not a durable application data store.
+- **Vercel Sandbox** (skills at `$HOME/.agents/skills`, workspace at `/workspace`): holds the seeded skill files the model reads. The reviewer subagent declares its own `sandbox.ts` because subagent sandboxes don't inherit from the root. Not a durable application data store.
 
 There is no application database.
 
@@ -106,7 +109,7 @@ There is no application database.
 
 - **Inbound route auth** (`agent/channels/eve.ts`): `[localDevUser, vercelOidc()]` rejects public browser traffic; Slack traffic is authenticated by its connector, which issues a per-user (`principalType: "user"`) principal. `localDevUser` defers the trust decision to the framework's `localDev()` and only upgrades the resolved dev principal to a user, so user-scoped connections work from the dev TUI without affecting production.
 - **Outbound auth:** Typefully authenticates with a static API key read from `TYPEFULLY_API_KEY` via `getToken`; Notion is per-user OAuth via Vercel Connect (credentials resolved per call, never exposed to the model); Blob uses the project OIDC token. No credentials live in code, and `.env*` is gitignored.
-- **Human-in-the-loop:** irreversible tool actions (`delete_asset`, `clear_user_preferences`) are gated with `approval` from `eve/tools/approval`. The Typefully connection always gates its delete tools (`typefully_delete_draft`, `typefully_delete_comment`, `typefully_delete_thread`) and gates `typefully_create_draft` / `typefully_edit_draft` only when `requestBody.publish_at` is set, so plain drafting never prompts but scheduling and publishing do. The Notion connection gates its update/move tools (`notion-update-pages`, `notion-move-pages`, `notion-update-data-source`, `notion-update-view`). Each renders as a Slack approve/deny button.
+- **Human-in-the-loop:** irreversible tool actions (`delete_asset`, `clear_user_preferences`) are gated with `approval` from `eve/tools/approval`. The Typefully connection always gates its delete tools (`typefully_delete_draft`, `typefully_delete_comment`, `typefully_delete_thread`) and gates `typefully_create_draft` / `typefully_edit_draft` only when `requestBody.publish_at` is set, so plain drafting never prompts but scheduling and publishing do. The Notion connection gates its update/move tools (`notion-update-pages`, `notion-move-pages`, `notion-update-data-source`, `notion-update-view`). Each renders as a Slack approve/deny button; only the person whose turn requested the call can answer it. A markdown schedule run cannot ask anyone, so a gated call fails that run instead of waiting.
 - **Input hardening:** `download_asset` only fetches `*.blob.vercel-storage.com` URLs (prevents SSRF, since the `url` is model-supplied). The Typefully approval policy reads `requestBody.publish_at` defensively (`readPublishAt`) without trusting the model-supplied input shape.
 - **Per-user isolation:** the preference tools derive their Blob key from the resolved principal (`ctx.session.auth.current`), never from model input, so a session can only touch its own user's file; the id is hashed so the stored path carries no raw identifier. The general asset tools refuse the reserved `user-preferences/` prefix so they can't be used as a side channel. The Blob store is provisioned public, so preferences are scoped, not strongly confidential — use a private store if that matters.
 
@@ -116,7 +119,7 @@ There is no application database.
 - **Type checking:** `pnpm typecheck` (tsc).
 - **Lint/format:** `pnpm check` / `pnpm fix` (Ultracite, a Biome preset; config in `biome.jsonc`).
 - **Discovery diagnostics:** `npx eve info` (must report 0 errors / 0 warnings).
-- There is no unit-test suite; verify behavior in the dev TUI.
+- There is no unit-test suite; verify behavior in the dev TUI. For deterministic runtime checks without a model provider, eve's `mockModel` from `eve/evals` can drive a fixture agent under `eve eval`.
 
 ## Future considerations
 
@@ -129,10 +132,10 @@ There is no application database.
 
 - **eve:** the agent framework powering this app; discovers capabilities from `agent/`.
 - **Channel:** an inbound/outbound surface (here, Slack, plus the eve route's auth config).
-- **Connection:** an external server (MCP/OpenAPI) exposed to the model; tools are called as `connection__<name>__<tool>`. Here: `typefully` and `notion`.
+- **Connection:** an external server (MCP/OpenAPI) exposed to the model; its tools are named `<connection>__<tool>` (e.g. `typefully__typefully_create_draft`) and reached through eve's catalog tools (`eve__search`, `eve__tool`). Here: `typefully` and `notion`.
 - **Tool:** a typed action authored with `defineTool`, run in the app runtime.
 - **Schedule:** a cron-triggered agent run authored with `defineSchedule` under `agent/schedules/`. Here: `weekly-analytics` (the Monday Typefully analytics digest).
 - **Skill:** a load-on-demand Markdown procedure; the packaged form requires `description` frontmatter used for routing. Here: `writing-quality` plus five per-platform style skills (`x-style`, `linkedin-style`, `threads-style`, `bluesky-style`, `mastodon-style`).
-- **Subagent:** a declared agent under `agent/subagents/<id>/` that the root delegates to as a tool. It runs in its own fresh child session and inherits none of the root's skills, connections, or tools, so the root passes context in the call `message`. Here: `researcher` (web research) and `reviewer` (draft review, with its own skill copy and sandbox).
+- **Subagent:** a declared agent under `agent/subagents/<id>/` that the root delegates to, as a tool or through `ctx.agent()` in a workflow tool. It runs in its own fresh child session and inherits none of the root's skills, connections, or tools, so the root passes context in the call `message`. Here: `web-researcher` (web research, behind the `researcher` tool) and `draft-reviewer` (draft review with its own skill copy and sandbox, behind the `reviewer` tool).
 - **Vercel Connect:** brokers OAuth/credentials for Slack and Notion; connectors are identified by a UID.
 - **OIDC:** the project's Vercel identity token, used to authenticate Blob (and AI Gateway) without static keys.
