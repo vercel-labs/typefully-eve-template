@@ -13,8 +13,10 @@ import { defineAgent } from "eve";
  * rationalizes away. The skill copy under this folder's `skills/` is duplicated byte-for-byte
  * from the root's on purpose; keep the two identical when editing either.
  *
- * `description` is what the root reads to decide when to delegate; `outputSchema` makes the
- * verdict a structured result it can act on directly.
+ * `tool: false` hides the auto-generated `draft-reviewer` tool: the root reaches this agent through the
+ * authored `reviewer` workflow tool (`agent/tools/reviewer.ts`), which requests the structured
+ * verdict per turn with `ctx.agent().send({ outputSchema })` (eve no longer accepts
+ * `outputSchema` on `defineAgent`). `description` still describes the agent in `ctx.agents`.
  *
  * @see The review rubric and verdict contract in this folder's `instructions.md`.
  */
@@ -26,42 +28,5 @@ export default defineAgent({
     "and any voice or audience context in the message; the reviewer loads its own rubric " +
     "and returns a verdict with concrete issues.",
   model: "anthropic/claude-fable-5",
-  outputSchema: {
-    additionalProperties: false,
-    properties: {
-      issues: {
-        description:
-          "One entry per concrete problem; empty when the verdict is 'ready'.",
-        items: {
-          additionalProperties: false,
-          properties: {
-            fix: {
-              description: "A concrete suggested change.",
-              type: "string",
-            },
-            quote: {
-              description: "The offending excerpt, quoted from the draft.",
-              type: "string",
-            },
-            rule: {
-              description: "The rubric rule or reference the excerpt breaks.",
-              type: "string",
-            },
-            severity: { enum: ["high", "medium", "low"], type: "string" },
-          },
-          required: ["severity", "rule", "quote", "fix"],
-          type: "object",
-        },
-        type: "array",
-      },
-      verdict: {
-        description:
-          "'ready' = clean enough to send as-is; 'revise' = fix the issues first.",
-        enum: ["ready", "revise"],
-        type: "string",
-      },
-    },
-    required: ["verdict", "issues"],
-    type: "object",
-  },
+  tool: false,
 });

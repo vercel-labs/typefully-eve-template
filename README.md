@@ -52,7 +52,7 @@ I want to build a Slack agent with the eve framework, using the Typefully social
 
 ```text
 agent/
-  agent.ts                  # model configuration, compaction, session token limits
+  agent.ts                  # model configuration, compaction, session usage limit
   instructions.md           # the agent's behavior
   channels/
     slack.ts                # Slack surface (Vercel Connect credentials)
@@ -60,14 +60,14 @@ agent/
   connections/
     typefully.ts            # Typefully MCP, static API key (TYPEFULLY_API_KEY); deletes and scheduling require approval
     notion.ts               # Notion MCP, user-scoped OAuth; page updates/moves require approval
-  sandbox.ts                # Vercel Sandbox backend
+  sandbox.ts                # Vercel Sandbox environment
   schedules/
     weekly-analytics.ts     # Monday cron: pull Typefully analytics, post a digest to Slack
   subagents/
-    researcher/             # fresh-context web researcher (own session, web tools only)
-    reviewer/               # fresh-context draft reviewer (own session)
+    web-researcher/         # fresh-context web researcher (own session, web tools only); reached via tools/researcher.ts
+    draft-reviewer/         # fresh-context draft reviewer (own session); reached via tools/reviewer.ts
       skills/writing-quality/  # its own copy of the writing-quality rubric
-      sandbox.ts            # its own sandbox backend
+      sandbox.ts            # its own sandbox environment
   tools/
     upload_asset.ts         # Vercel Blob: store text or binary content
     list_assets.ts          # Vercel Blob: browse stored assets
@@ -79,8 +79,11 @@ agent/
     clear_user_preferences.ts # clear this user's preferences (requires approval)
     lint_against_style.ts   # check a draft against the target platform's banned-words list
     post_analytics_report.ts  # post the weekly analytics digest to a fixed Slack channel
+    researcher.ts           # delegate to web-researcher; returns cited findings (structured output)
+    reviewer.ts             # delegate to draft-reviewer; returns a verdict (structured output)
   lib/
     user-preferences.ts     # principal-scoped Blob key + reserved-prefix guard
+    banned-words.ts         # bundles each style skill's banned-words.json for lint_against_style
   skills/
     writing-quality/              # generic prose quality for anything written for humans
     x-style/                      # X voice, hooks, threads, specs, banned words
@@ -113,7 +116,7 @@ export default defineRemoteAgent({
 
 3. Set `CONTENT_AGENT_URL` in this project's environment and mention the new subagent in `agent/instructions.md` so the agent knows when to hand off.
 
-The remote agent runs in its own deployment with its own skills and connections, and it never sees this agent's conversation history, so this agent packs everything the writer needs into the call `message`. The result comes back as a normal tool result, the same shape as the local `researcher` and `reviewer` subagents.
+The remote agent runs in its own deployment with its own skills and connections, and it never sees this agent's conversation history, so this agent packs everything the writer needs into the call `message`. The writer's reply comes back as a normal tool result. (The local `researcher` and `reviewer` tools additionally request structured output per turn; see `agent/tools/researcher.ts` for that pattern.)
 
 ## Local development
 
@@ -170,7 +173,7 @@ vercel blob create-store <name> --access public --yes
 
 - **Behavior:** edit `agent/instructions.md`. It describes the whole workflow: load the right skill first, ground work in the user's real social sets and drafts, draft freely but schedule and delete only on approval, draft long pieces into Notion, and get a fresh-eyes review before proposing a draft.
 - **Approval gates:** edit the approval policy in `agent/connections/typefully.ts` (the `DELETE_TOOLS` / `PUBLISH_TOOLS` lists and the `publish_at` check) and the `APPROVAL_REQUIRED_TOOLS` list in `agent/connections/notion.ts` to change which MCP tools pause for a human decision.
-- **Skills:** edit or add skills in `agent/skills/`. Each folder holds a `SKILL.md` plus its reference files. The five `*-style` skills carry per-platform guidance and a `banned-words.json` that the `lint_against_style` tool checks drafts against; `writing-quality` carries the generic prose rules. The reviewer subagent keeps its own identical copy of `writing-quality` under `agent/subagents/reviewer/skills/`.
+- **Skills:** edit or add skills in `agent/skills/`. Each folder holds a `SKILL.md` plus its reference files. The five `*-style` skills carry per-platform guidance and a `banned-words.json` that the `lint_against_style` tool checks drafts against; `writing-quality` carries the generic prose rules. The reviewer subagent keeps its own identical copy of `writing-quality` under `agent/subagents/draft-reviewer/skills/`.
 - **Model:** edit `agent/agent.ts` (or run `/model` in the dev TUI).
 - **Tools:** add or change tools in `agent/tools/`. The filename is the tool name.
 - **Weekly analytics digest:** set `TYPEFULLY_ANALYTICS_CHANNEL` to the Slack channel id it should post to. Change the day or time in `agent/schedules/weekly-analytics.ts` (the cron is evaluated in UTC), and edit `agent/tools/post_analytics_report.ts` to change the report format. In dev, trigger a run with `curl -X POST http://localhost:3000/eve/v1/dev/schedules/weekly-analytics`.
