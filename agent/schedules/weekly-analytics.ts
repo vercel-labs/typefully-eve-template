@@ -5,8 +5,9 @@ import { defineSchedule } from "eve/schedules";
  *
  * @remarks
  * Fires every Monday at 14:00 UTC (Vercel evaluates cron in UTC; adjust the hour for your
- * team's timezone). Task mode runs the agent on the prompt below with the full tool surface;
- * the read-only analytics tools are not approval-gated, so the session never needs to park.
+ * team's timezone). Each run starts a session that runs the agent on the prompt below with the
+ * full tool surface. Nobody can answer an approval in a scheduled run, so a gated tool call fails
+ * the run; the read-only analytics tools are not approval-gated, so the digest never needs one.
  * Delivery is the `post_analytics_report` tool, which posts to the channel in the
  * `TYPEFULLY_ANALYTICS_CHANNEL` environment variable, so this schedule needs no channel
  * handoff. Trigger it in dev with `curl -X POST http://localhost:3000/eve/v1/dev/schedules/weekly-analytics`.
