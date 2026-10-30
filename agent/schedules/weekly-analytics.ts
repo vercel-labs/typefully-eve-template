@@ -15,8 +15,7 @@ import { defineSchedule } from "eve/schedules";
  * @see {@link https://eve.dev/docs/schedules | eve schedules}
  */
 export default defineSchedule({
-  cron: "0 14 * * 1",
-  markdown: [
+  content: [
     "Post this week's Typefully analytics digest to the team.",
     "",
     "1. Call typefully_list_social_sets and pick the first social set to report on. Note its id and name.",
@@ -30,4 +29,5 @@ export default defineSchedule({
     "",
     "Do not post anything if the analytics tools error; let the run fail instead so the problem is visible.",
   ].join("\n"),
+  cron: "0 14 * * 1",
 });

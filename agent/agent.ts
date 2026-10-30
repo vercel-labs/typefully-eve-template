@@ -22,7 +22,7 @@ const MAX_OUTPUT_TOKENS = 20_000;
  * Subagents without their own `limits` check their own window against this same function.
  */
 export default defineAgent({
-  compaction: { thresholdPercent: 0.75 },
+  compaction: { threshold: 0.75 },
   limits: {
     sessionUsage: ({ window }) =>
       window.inputTokens - window.cacheReadTokens >= MAX_NEW_INPUT_TOKENS ||
