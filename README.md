@@ -1,3 +1,12 @@
+> [!WARNING]
+> **Deprecated.** This template is no longer maintained and will not receive further updates.
+>
+> If you need a standalone social media agent for Typefully or a full-featured content assistant, use [eve Content Agent](https://github.com/vercel-labs/eve-content-agent-template) instead.
+>
+> If you want a complete marketing team in Slack with content, social, email, and SEO specialists working together, use [eve Marketing Team](https://github.com/vercel-labs/marketing-team-eve-template). It includes a dedicated specialist for Typefully-based social publishing.
+>
+> You can continue to clone and use this template, but we recommend choosing one of the actively maintained templates above.
+
 # Typefully Social Media Agent eve Template
 
 [![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
